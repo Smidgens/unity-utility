@@ -2,60 +2,90 @@
 
 // ReSharper disable All
 
+#pragma warning disable 0414
+#pragma warning disable 0067
+
 namespace Smidgenomics.Unity.UtilityAI
 {
 	using UnityEngine;
 	using System;
+	using IEnumerator = System.Collections.IEnumerator;
 
 	/**
 	 * TODO:
 	 * - Considerations
 	 */
-	public abstract class UtilityActionSO : ScriptableObject, IUtilityAction
+	public abstract class UtilityActionSO : UtilitySO, IUtilityAction
 	{
-		public virtual System.Collections.IEnumerator OnActivate(UtilityContext context)
+		UtilityActionStatus IUtilityAction.Status
 		{
-			yield return null;
+			get => _status;
+			set => _status = value;
 		}
 
-		public virtual void OnTick(in UtilityContext context)
+		public UtilityActionStatus GetStatus()
 		{
-			// update
+			return _status;
 		}
 
-		public virtual void OnEnd(in UtilityContext context)
+		public virtual float GetCooldown()
 		{
-			// 
+			return 1;
+		}
+
+		public virtual IEnumerator ActivateAction()
+		{
+			return null;
+		}
+
+		public virtual IEnumerator CancelAction()
+		{
+			return null;
+		}
+
+		public virtual bool CanCancelAction()
+		{
+			return false;
 		}
 
 		// 
-		public float GetScore(in UtilityContext context)
+		public float GetTotalScore()
 		{
 			if (Mathf.Approximately(_weight, 0f))
 			{
 				return 0f;
 			}
-			var conScore = UtilityMath.ScoreConsiderations(context, _considerations, out int Count);
+			var conScore = UtilityMath.ScoreConsiderations(_currentContext, _considerations, out int Count);
 			return _weight * conScore;
 		}
 
-		event Action IUtilityAction.OnActionFinished
+		protected void FinishAction()
 		{
-			add => _onActionFinished += value;
-			remove => _onActionFinished-= value;
+			_callbacks.onActionFinished?.Invoke();
 		}
 
-		IUtilityAction IUtilityAction.InstantiateAction()
+		protected UtilityContext GetContext()
 		{
-			return ScriptableObject.Instantiate(this);
+			return _currentContext;
 		}
 
-		private Action _onActionFinished;
+		IUtilityAction IUtilityAction.InstantiateAction(UtilityContext context, UtilityActionCallbacks callbacks)
+		{
+			var instance = ScriptableObject.Instantiate(this);
+			instance._currentContext = context;
+			instance._callbacks = callbacks;
+			return instance;
+		}
 
-		[Range(0,1)]
+		[Min(0f)]
+		[HideInInspector]
 		[SerializeField] internal float _weight = 1f;
 
 		[HideInInspector]
 		[SerializeField] internal UtilityConsiderationSO[] _considerations = { };
+
+		private UtilityContext _currentContext = default;
+		private UtilityActionCallbacks _callbacks = default;
+		private UtilityActionStatus _status = UtilityActionStatus.Inactive;
 	}
 }

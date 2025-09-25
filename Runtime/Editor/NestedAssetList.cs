@@ -16,58 +16,83 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 	internal sealed class NestedAssetList<T> where T : ScriptableObject
 	{
 		public Action<Rect, SP, T> onDrawListItem = null;
+
+		public bool IsIndexSelected(int index) => _assetList.IsSelected(index);
 		
-		
+		public bool DrawTypeIcon { get; set; }
+
+		public string DefaultTypeIconGUID
+		{
+			get
+			{
+				return _defaultIconGuidGuid;
+			}
+			set
+			{
+				_defaultIconGuidGuid = value;
+
+				if (_defaultIconGuidGuid == null)
+				{
+					_defaultTypeIcon = null;
+					return;
+				}
+				
+				var iconGuid = value;
+				_defaultTypeIcon = new Lazy<Texture>(() =>
+				{
+					var path = AssetDatabase.GUIDToAssetPath(iconGuid);
+					return AssetDatabase.LoadAssetAtPath<Texture>(path);
+				});
+			}
+		}
+
 		public NestedAssetList(SP arrayProp)
 		{
 			_arrayProp = arrayProp;
 			_addContext = UtilityEditorUtils.CreateTypeMenu(typeof(T), OnAddOption);
-			_actionList = new RL(_arrayProp.serializedObject, _arrayProp);
-			_actionList.onAddDropdownCallback = (r, l) => _addContext.DropDown(r);
-			_actionList.onRemoveCallback = OnDeleteAsset;
+			_assetList = new RL(_arrayProp.serializedObject, _arrayProp);
+			_assetList.onAddDropdownCallback = (r, l) => _addContext.DropDown(r);
+			_assetList.onRemoveCallback = OnDeleteAsset;
 
-			_actionList.headerHeight = EditorGUIUtility.singleLineHeight * 1.5f;
-
-			_actionList.drawHeaderCallback = rect =>
+			_assetList.drawHeaderCallback = rect =>
 			{
 				EditorGUI.LabelField(rect, new  GUIContent(_arrayProp.displayName), EditorStyles.whiteLargeLabel);
 			};
 
-			_actionList.onSelectCallback = list =>
+			_assetList.onSelectCallback = list =>
 			{
-
+				// notify owner?
 			};
 
-			_actionList.drawElementCallback = (rect, index, isActive, isFocused) =>
+			_assetList.drawElementCallback = (rect, index, isActive, isFocused) =>
 			{
 				DrawListItem(rect, index);
 			};
-
 		}
 
 		// 
 		public void OnListGUI()
 		{
-			if (_actionList == null)
+			if (_assetList == null)
 			{
 				return;
 			}
 
 			_arrayProp.serializedObject.UpdateIfRequiredOrScript();
-			_actionList.DoLayoutList();
+			_assetList.DoLayoutList();
 			_arrayProp.serializedObject.ApplyModifiedProperties();
 
 			EnsureInspector();
-			
+
 			if (_childInspector && _childInspector.target)
 			{
-				EditorGUILayout.Space(5);
-				
+				EditorGUILayout.Space(2);
+				// DrawScriptInfo();
 				if (_childName != null)
 				{
+					EditorGUILayout.BeginVertical(GUI.skin.box);
 					EditorGUILayout.PropertyField(_childName);
-					EditorGUILayout.Space();
-
+					EditorGUILayout.EndVertical();
 					_childName.serializedObject.ApplyModifiedProperties();
 				}
 				_childInspector.OnInspectorGUI();
@@ -84,11 +109,95 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 			}
 		}
 
-		private RL _actionList = null;
+		private RL _assetList = null;
 		private SP _arrayProp = null;
 		private GenericMenu _addContext = null;
 		private Editor _childInspector = null;
 		private SP _childName = null;
+		private string _defaultIconGuidGuid = null;
+		private Lazy<Texture> _defaultTypeIcon = null;
+
+
+		private void DrawScriptInfo()
+		{
+			if (!_childInspector)
+			{
+				return;
+			}
+
+			var type = _childInspector.target.GetType();
+
+			var typeLabel = $"{type.Assembly.GetName().Name}.{type.Name}";
+
+			var open = false;
+
+			var tempColor = GUI.backgroundColor;
+			GUI.backgroundColor = Color.cyan * 0.5f;
+			
+			EditorGUILayout.BeginVertical(GUI.skin.box);
+
+			var btnLabel = new GUIContent("Edit");
+			var btnStyle = EditorStyles.miniButton;
+			var btnWidth = btnStyle.CalcSize(btnLabel).x;
+			
+			var dRect = EditorGUILayout.GetControlRect(GUILayout.Height(EditorGUIUtility.singleLineHeight));
+			dRect.SliceLeft(2f);
+
+			var iconRect = dRect.SliceLeft(dRect.height);
+			dRect.SliceLeft(2f);
+			
+			var btnRect = dRect.SliceRight(btnWidth);
+			dRect.SliceRight(2f);
+			
+			DrawIconBasic(iconRect, _childInspector.target as ScriptableObject);
+			
+			EditorGUI.LabelField(dRect, typeLabel, EditorStyles.miniLabel);
+
+			open = GUI.Button(btnRect, btnLabel, btnStyle);
+
+			EditorGUILayout.EndVertical();
+
+			GUI.backgroundColor = tempColor;
+
+			if (open)
+			{
+				UtilityEditorUtils.OpenScriptEditor(_childInspector.target);
+			}
+			
+		}
+
+		private static Lazy<Texture2D> _contextButtonIcon = new Lazy<Texture2D>(() =>
+		{
+			return EditorGUIUtility.FindTexture("_Menu");
+		});
+
+		private void DrawContextButton(Rect rect, T asset)
+		{
+			// EditorGUI.DrawRect(rect, Color.black);
+			if (GUI.Button(rect, new GUIContent(_contextButtonIcon.Value), EditorStyles.iconButton))
+			{
+				ShowContextMenu(asset);
+			}
+			
+		}
+
+		private void ShowContextMenu(T asset)
+		{
+				var scriptFile = UtilityEditorUtils.GetObjectMonoscript(asset);
+
+				var fileName = scriptFile.name;
+
+				var m = new GenericMenu();
+			
+				m.AddItem(new GUIContent($"Edit Script"), false, () =>
+				{
+					AssetDatabase.OpenAsset(scriptFile);
+				});
+
+				m.ShowAsContext();
+			// };
+
+		}
 
 		private void OnAddOption(object option)
 		{
@@ -102,7 +211,7 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 
 		private void EnsureInspector()
 		{
-			var i = _actionList.index;
+			var i = _assetList.index;
 			var currentItem = i >= 0 && i < _arrayProp.arraySize
 			? _arrayProp.GetArrayElementAtIndex(i).objectReferenceValue
 			: null;
@@ -123,24 +232,80 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 
 		private void DrawListItem(Rect rect, int index)
 		{
-			var labelRect = rect;
-			labelRect.height = EditorGUIUtility.singleLineHeight;
+			rect.SliceLeft(2f);
+			rect.SliceRight(2f);
+			
 			SP prop = _arrayProp.GetArrayElementAtIndex(index);
 			
-			var asset = prop.objectReferenceValue;
+			var asset = prop.objectReferenceValue as T;
 
-			if (onDrawListItem != null)
-			{
-				onDrawListItem.Invoke(rect, prop, asset as T);
-				return;
-			}
+			// if (Event.current != null && Event.current.isMouse && Event.current.button == 1 && rect.Contains(Event.current.mousePosition))
+			// {
+			// 	ShowContextMenu(asset);
+			// }
+
+
 			
-			if (!asset)
+			
+			if (DrawTypeIcon)
 			{
-				EditorGUI.LabelField(labelRect, new GUIContent("(none)"));
+				var iconRect = rect.SliceLeft(rect.height);
+				rect.SliceLeft(1);
+				DrawIcon(iconRect, asset);
+			}
+
+			var ctxRect = rect.SliceRight(rect.height * 0.6f);
+			rect.SliceRight(5f);
+			DrawContextButton(ctxRect, asset);
+
+			if (asset && onDrawListItem != null)
+			{
+				var labelRect = rect;
+				labelRect.height = EditorGUIUtility.singleLineHeight;
+				labelRect.center = rect.center;
+				onDrawListItem.Invoke(labelRect, prop, asset);
 				return;
 			}
-			EditorGUI.LabelField(labelRect, new GUIContent(asset.name));
+			else
+			{
+				EditorGUI.LabelField(rect, asset?.name ?? "null");
+				
+			}
+		}
+
+		private void DrawIcon(Rect rect, ScriptableObject asset)
+		{
+			rect.Resize(-2f);
+			
+			var ms = MonoScript.FromScriptableObject(asset);
+			var path = AssetDatabase.GetAssetPath(ms);
+			Texture ico = AssetDatabase.GetCachedIcon(path);
+
+			if (_defaultTypeIcon != null && UtilityEditorUtils.IsDefaultScriptIcon(ico))
+			{
+				ico = _defaultTypeIcon.Value;
+			}
+
+			if (!ico)
+			{
+				return;
+			}
+			GUI.DrawTexture(rect, ico, ScaleMode.StretchToFill);
+		}
+		
+		private static void DrawIconBasic(Rect rect, ScriptableObject asset)
+		{
+			rect.Resize(-2f);
+			
+			var ms = MonoScript.FromScriptableObject(asset);
+			var path = AssetDatabase.GetAssetPath(ms);
+			Texture ico = AssetDatabase.GetCachedIcon(path);
+
+			if (!ico)
+			{
+				return;
+			}
+			GUI.DrawTexture(rect, ico, ScaleMode.StretchToFill);
 		}
 
 		private void OnDeleteAsset(RL list)

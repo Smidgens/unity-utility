@@ -2,13 +2,11 @@
 
 // ReSharper disable All
 
-
-using UnityEngine;
-
 namespace Smidgenomics.Unity.UtilityAI
 {
 	using System.Collections.Generic;
-	
+	using UnityEngine;
+
 	internal static class UtilityMath
 	{
 		public static float ScoreConsiderations

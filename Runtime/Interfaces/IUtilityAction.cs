@@ -6,7 +6,7 @@ namespace Smidgenomics.Unity.UtilityAI
 {
 	using UnityEngine;
 	using System;
-	using ActionResult = System.Collections.IEnumerator;
+	using IEnumerator = System.Collections.IEnumerator;
 
 	/**
 	 * TODO:
@@ -15,15 +15,34 @@ namespace Smidgenomics.Unity.UtilityAI
 	 */
 	public interface IUtilityAction
 	{
-		public float GetScore(in UtilityContext context);
+		// display info
+		public string Name { get; }
 
-		public ActionResult OnActivate(UtilityContext context);
+		// selectable?
+		public bool Enabled { get; }
 
-		internal event Action OnActionFinished;
+		// currently cancelable?
+		public bool CanCancelAction();
+
+		// cooldown based on current state
+		public float GetCooldown();
+
+		// >= 0, not necessarily normalized
+		public float GetTotalScore();
+
+		// execution status
+		public UtilityActionStatus GetStatus();
+
+		// main logic execution logic
+		public IEnumerator ActivateAction();
+
+		// begin cancellation
+		public IEnumerator CancelAction();
+
+		internal UtilityActionStatus Status { get; set;  }
 
 		// Used to clone templates for execution
-		internal IUtilityAction InstantiateAction();
+		internal IUtilityAction InstantiateAction(UtilityContext context, UtilityActionCallbacks callbacks);
 
 	}
-
 }

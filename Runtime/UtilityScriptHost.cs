@@ -19,26 +19,40 @@ namespace Smidgenomics.Unity.UtilityAI
 			if (_instance == null)
 			{
 				_instance = (new GameObject(nameof(UtilityScriptHost))).AddComponent<UtilityScriptHost>();
+				_instance.gameObject.hideFlags = HideFlags.HideInHierarchy;
 			}
 			return _instance;
 		}
 
-		public void DelayAction(Action action)
-		{
-			
-		}
+		public event Action onUpdate = null;
+		public event Action onGUI = null;
 
-		public Coroutine RunCoroutine(Routine routine, Action action)
+		public static void StopRoutine(Coroutine routine)
 		{
-			return StartCoroutine(StartRoutine(routine, action));
+			GetInstance().StopCoroutine(routine);
+		}
+		
+		public static Coroutine RunCoroutine(Routine routine, Action onDone = null)
+		{
+			return GetInstance().StartCoroutine(StartRoutine(routine, onDone));
 		}
 
 		private static UtilityScriptHost _instance = null;
 
-		private Routine StartRoutine(Routine routine, Action action)
+		private void Update()
+		{
+			onUpdate?.Invoke();
+		}
+
+		private void OnGUI()
+		{
+			onGUI?.Invoke();
+		}
+
+		private static Routine StartRoutine(Routine routine, Action action)
 		{
 			yield return routine;
-			action();
+			action?.Invoke();
 		}
 	}
 }

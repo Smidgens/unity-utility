@@ -1,12 +1,25 @@
 // smidgens @ github
 
+// ReSharper disable All
+
 namespace Smidgenomics.Unity.UtilityAI
 {
 	public enum UtilitySelectionMethod
 	{
 		// Always 
-		BestScore,
+		Best,
 		// Pick random in interval around best score
-		RandomAroundBest
+		BestInterval
+	}
+}
+
+namespace Smidgenomics.Unity.UtilityAI
+{
+	public enum UtilityActionStatus
+	{
+		Inactive,
+		Active,
+		Completed,
+		Canceled
 	}
 }

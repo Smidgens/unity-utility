@@ -8,10 +8,9 @@ namespace Smidgenomics.Unity.UtilityAI
 	using System;
 	using UnityEngine.Serialization;
 
-	//[CreateAssetMenu]
-	public abstract class UtilityConsiderationSO : ScriptableObject, IUtilityConsideration
+	public abstract class UtilityConsiderationSO : UtilitySO, IUtilityConsideration
 	{
-		public bool Enabled => _enabled;
+		// public bool Enabled => _enabled;
 
 		public abstract float GetScore(in UtilityContext Context);
 
@@ -21,9 +20,13 @@ namespace Smidgenomics.Unity.UtilityAI
 			return _invert ? 1 - score : score;
 		}
 
-		[SerializeField] private bool _enabled = true;
-		[SerializeField] private bool _invert = false;
+		// [HideInInspector]
+		// [SerializeField] internal bool _enabled = true;
+
+		[HideInInspector]
+		[SerializeField] internal bool _invert = false;
 		
+		[HideInInspector]
 		[FormerlySerializedAs("_responseCurve")]
 		[SerializeField] internal AnimationCurve _curve = AnimationCurve.Linear(0, 0, 1, 1);
 	}

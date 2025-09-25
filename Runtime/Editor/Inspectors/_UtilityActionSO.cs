@@ -22,15 +22,17 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 		{
 			serializedObject.UpdateIfRequiredOrScript();
 
+			EditorGUILayout.BeginVertical(GUI.skin.box);
 			foreach (var prop in _props)
 			{
 				if (prop == null)
 				{
-					EditorGUILayout.Space();
 					continue;
 				}
 				EditorGUILayout.PropertyField(prop);
 			}
+			EditorGUILayout.EndVertical();
+			
 			serializedObject.ApplyModifiedProperties();
 			EditorGUILayout.Space();
 			_considerationView.OnListGUI();
@@ -51,23 +53,47 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 			var listProp = serializedObject.FindProperty(nameof(UtilityActionSO._considerations));
 			_considerationView = new (listProp);
 
+			_considerationView.DefaultTypeIconGUID = "d8ec218438d247b49a3a0f61ed39664d";
+			_considerationView.DrawTypeIcon = true;
+
 			_considerationView.onDrawListItem = (rect, prop, so) =>
 			{
-				var tickRect = rect.SliceLeft(rect.height);
-				tickRect.Resize(-5f);
-				rect.SliceLeft(2f);
+				if (!so)
+				{
+					return;
+				}
 				
-				var color = so.Enabled ? Color.green : Color.gray;
-	
-				EditorGUI.DrawRect(tickRect, color * 0.8f);
+				var checkRect = rect.SliceLeft(rect.height);
+				var newEnabled = GUI.Toggle(checkRect, so._enabled, GUIContent.none);
+				if (newEnabled != so._enabled)
+				{
+					Undo.RecordObject(so, "Toggle enabled");
+					so._enabled = newEnabled;
+				}
 
 				var curveRect = rect.SliceRight(rect.height * 1.5f);
-				curveRect.Resize(-2f);
-				rect.SliceRight(2f);
-
 				var tenabled = GUI.enabled;
-				GUI.enabled = false;
-				EditorGUI.CurveField(curveRect, so._curve);
+				// GUI.enabled = false;
+
+				EditorGUI.BeginChangeCheck();
+
+				var changedCurve = EditorGUI.CurveField(curveRect, new AnimationCurve(so._curve.keys));
+				if (EditorGUI.EndChangeCheck())
+				{
+					Undo.RecordObject(so, "Change curve");
+					so._curve = changedCurve;
+				}
+				
+				
+				var invertRect = rect.SliceRight(60f);
+				var newInvert = EditorGUI.ToggleLeft(invertRect, new GUIContent("Invert"), so._invert);
+				if (newInvert != so._invert)
+				{
+					Undo.RecordObject(so, "Toggle inverted");
+					so._invert = newInvert;
+				}
+				
+
 				GUI.enabled = tenabled;
 				EditorGUI.LabelField(rect, so.name);
 			};
@@ -80,7 +106,7 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 				_considerationView.DisposeGUI();
 			}
 		}
-
+		
 	}
 }
 

@@ -1,10 +1,10 @@
 // smidgens @ github
 
-namespace Smidgenomics.Unity.UtilityAI.Editor
+namespace Smidgenomics.Unity.UtilityAI
 {
 	using UnityEngine;
 
-	public static partial class Rect_
+	internal static partial class Rect_
 	{
 		/// <summary>
 		/// Slices a rect of width w from right and returns it.

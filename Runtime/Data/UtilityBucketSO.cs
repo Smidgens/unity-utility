@@ -3,15 +3,19 @@
 namespace Smidgenomics.Unity.UtilityAI
 {
 	using UnityEngine;
-	using System;
+	using System.Collections.Generic;
 
 	/**
 	 * TODO:
 	 * - Actions
 	 */
 	[CreateAssetMenu(menuName = "Utility/Utility Bucket")]
-	internal sealed class UtilityBucketSO : ScriptableObject
+	[ExcludeFromPreset]
+	public sealed class UtilityBucketSO : ScriptableObject
 	{
+		public IEnumerable<IUtilityAction> GetActions() => _actions;
+
+
 		[HideInInspector]
 		[SerializeField] internal UtilityActionSO[] _actions = { };
 	}
