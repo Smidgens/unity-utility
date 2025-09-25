@@ -16,7 +16,7 @@ namespace Smidgenomics.Unity.UtilityAI
 	{
 		public static UtilityScriptHost GetInstance()
 		{
-			if (_instance == null)
+			if (_instance == null && !_closing)
 			{
 				_instance = (new GameObject(nameof(UtilityScriptHost))).AddComponent<UtilityScriptHost>();
 				_instance.gameObject.hideFlags = HideFlags.HideInHierarchy;
@@ -27,9 +27,20 @@ namespace Smidgenomics.Unity.UtilityAI
 		public event Action onUpdate = null;
 		public event Action onGUI = null;
 
+		private static bool _closing = false;
+
+		private void OnDestroy()
+		{
+			StopAllCoroutines();
+		}
+
 		public static void StopRoutine(Coroutine routine)
 		{
-			GetInstance().StopCoroutine(routine);
+			if (_instance)
+			{
+				_instance.StopCoroutine(routine);
+			}
+			
 		}
 		
 		public static Coroutine RunCoroutine(Routine routine, Action onDone = null)
