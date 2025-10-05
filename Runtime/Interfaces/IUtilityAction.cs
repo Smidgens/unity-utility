@@ -8,11 +8,9 @@ namespace Smidgenomics.Unity.UtilityAI
 	using System;
 	using IEnumerator = System.Collections.IEnumerator;
 
-	/**
-	 * TODO:
-	 * - activate
-	 * - tick
-	 */
+	/// <summary>
+	/// 
+	/// </summary>
 	public interface IUtilityAction
 	{
 		// display info
@@ -25,21 +23,21 @@ namespace Smidgenomics.Unity.UtilityAI
 		public bool CanCancelAction();
 
 		// cooldown based on current state
-		public float GetCooldown();
+		public float GetActionCooldown();
 
 		// >= 0, not necessarily normalized
 		public float GetTotalScore();
 
 		// execution status
-		public UtilityActionStatus GetStatus();
+		public EUtilityActionStatus GetActionStatus();
 
 		// main logic execution logic
 		public IEnumerator ActivateAction();
 
 		// begin cancellation
-		public IEnumerator CancelAction();
+		public IEnumerator DeactivateAction();
 
-		internal UtilityActionStatus Status { get; set;  }
+		internal EUtilityActionStatus Status { get; set;  }
 
 		// Used to clone templates for execution
 		internal IUtilityAction InstantiateAction(UtilityContext context, UtilityActionCallbacks callbacks);

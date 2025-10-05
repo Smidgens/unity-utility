@@ -17,18 +17,18 @@ namespace Smidgenomics.Unity.UtilityAI
 	 */
 	public abstract class UtilityActionSO : UtilitySO, IUtilityAction
 	{
-		UtilityActionStatus IUtilityAction.Status
+		EUtilityActionStatus IUtilityAction.Status
 		{
 			get => _status;
 			set => _status = value;
 		}
 
-		public UtilityActionStatus GetStatus()
+		public EUtilityActionStatus GetActionStatus()
 		{
 			return _status;
 		}
 
-		public virtual float GetCooldown()
+		public virtual float GetActionCooldown()
 		{
 			return 1;
 		}
@@ -38,14 +38,14 @@ namespace Smidgenomics.Unity.UtilityAI
 			return null;
 		}
 
-		public virtual IEnumerator CancelAction()
+		public virtual IEnumerator DeactivateAction()
 		{
 			return null;
 		}
 
 		public virtual bool CanCancelAction()
 		{
-			return false;
+			return true;
 		}
 
 		// 
@@ -72,6 +72,7 @@ namespace Smidgenomics.Unity.UtilityAI
 		IUtilityAction IUtilityAction.InstantiateAction(UtilityContext context, UtilityActionCallbacks callbacks)
 		{
 			var instance = ScriptableObject.Instantiate(this);
+			instance.name = name;
 			instance._currentContext = context;
 			instance._callbacks = callbacks;
 			return instance;
@@ -86,6 +87,6 @@ namespace Smidgenomics.Unity.UtilityAI
 
 		private UtilityContext _currentContext = default;
 		private UtilityActionCallbacks _callbacks = default;
-		private UtilityActionStatus _status = UtilityActionStatus.Inactive;
+		private EUtilityActionStatus _status = EUtilityActionStatus.Inactive;
 	}
 }

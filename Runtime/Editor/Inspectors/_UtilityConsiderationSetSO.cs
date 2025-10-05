@@ -2,6 +2,7 @@
 
 // ReSharper disable All
 
+
 #if UNITY_EDITOR
 
 namespace Smidgenomics.Unity.UtilityAI.Editor
@@ -15,48 +16,46 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 	using SP = UnityEditor.SerializedProperty;
 	using RL = UnityEditorInternal.ReorderableList;
 
-	[CustomEditor(typeof(UtilityActionSO), true)]
-	internal class _UtilityActionSO : Editor
+	[CustomEditor(typeof(UtilityConsiderationSetSO))]
+	internal class _UtilityConsiderationSetSO : Editor
 	{
 		public override void OnInspectorGUI()
 		{
 			serializedObject.UpdateIfRequiredOrScript();
-
-			EditorGUILayout.BeginVertical(GUI.skin.box);
-			foreach (var prop in _props)
-			{
-				if (prop == null)
-				{
-					continue;
-				}
-				EditorGUILayout.PropertyField(prop);
-			}
-			EditorGUILayout.EndVertical();
-			
+			EditorGUILayout.Space(5f);
+			// foreach (var prop in _props)
+			// {
+			// 	EditorGUILayout.PropertyField(prop);
+			// }
 			serializedObject.ApplyModifiedProperties();
-			EditorGUILayout.Space();
-			_considerationView.OnListGUI();
+			
+			EditorGUILayout.Space(5f);
+			_considerationAssetList.OnListGUI();
 			serializedObject.ApplyModifiedProperties();
 		}
 
-		private NestedAssetList<UtilityConsiderationSO> _considerationView = null;
-		private List<SP> _props = new();
+		protected override bool ShouldHideOpenButton()
+		{
+			return true;
+		}
+
+		private NestedAssetList<UtilityConsiderationSO> _considerationAssetList = null;
+
+		private static string[] _extraFields =
+		{
+			
+		};
 
 		private void OnEnable()
 		{
-			_props = new List<SP>();
-			foreach (var f in target.GetType().FindInspectorFields())
-			{
-				var prop = serializedObject.FindProperty(f.Name);
-				_props.Add(prop);
-			}
-			var listProp = serializedObject.FindProperty(nameof(UtilityActionSO._considerations));
-			_considerationView = new (listProp);
+			
+			var listProp = serializedObject.FindProperty(nameof(UtilityConsiderationSetSO._considerations));
+			_considerationAssetList = new NestedAssetList<UtilityConsiderationSO>(listProp);
 
-			_considerationView.DefaultTypeIconGUID = "d8ec218438d247b49a3a0f61ed39664d";
-			_considerationView.DrawTypeIcon = true;
+			_considerationAssetList.DefaultTypeIconGUID = "b403041b6ec9a3744b4e92bc8014f7f6";
+			_considerationAssetList.DrawTypeIcon = true;
 
-			_considerationView.onDrawListItem = (rect, prop, so) =>
+			_considerationAssetList.onDrawListItem = (rect, prop, so) =>
 			{
 				if (!so)
 				{
@@ -99,12 +98,32 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 
 		private void OnDisable()
 		{
-			if (_considerationView != null)
+			// cleanup
+			if (_considerationAssetList != null)
 			{
-				_considerationView.DisposeGUI();
+				_considerationAssetList.DisposeGUI();
 			}
 		}
+
+		private static string StringifyFloat(float v)
+		{
+			return v.ToString("0.0");
+		}
+
+		private static int CountEnabledConsiderations(UtilityActionSO action)
+		{
+			int c = 0;
+			foreach(var consideration in action._considerations)
+			{
+				if (consideration != null && consideration.Enabled)
+				{
+					c++;
+				}
+			}
+			return c;
+		}
 		
+
 	}
 }
 

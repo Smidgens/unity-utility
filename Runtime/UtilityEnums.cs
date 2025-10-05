@@ -4,22 +4,24 @@
 
 namespace Smidgenomics.Unity.UtilityAI
 {
-	public enum UtilitySelectionMethod
+	public enum EUtilitySelectionMethod
 	{
-		// Always 
-		Best,
-		// Pick random in interval around best score
-		BestInterval
+		// Always pick highest score
+		TopScore,
+		// Pick random within % of top score
+		TopScoreInterval,
+		// Treat scores as weights and pick random
+		RandomWeighted,
 	}
 }
 
 namespace Smidgenomics.Unity.UtilityAI
 {
-	public enum UtilityActionStatus
+	public enum EUtilityActionStatus
 	{
 		Inactive,
 		Active,
 		Completed,
-		Canceled
+		Cancelled
 	}
 }

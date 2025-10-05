@@ -13,6 +13,9 @@ namespace Smidgenomics.Unity.UtilityAI
 	public interface IUtilityConsideration
 	{
 		public bool Enabled { get;  }
+		
+		// display info
+		public string Name { get; }
 
 		public float GetScore(in UtilityContext context);
 	}

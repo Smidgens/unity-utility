@@ -15,8 +15,8 @@ namespace Smidgenomics.Unity.UtilityAI
 			yield return new WaitForSeconds(_duration);
 			yield return null;
 		}
-		
-		public override float GetCooldown()
+
+		public override float GetActionCooldown()
 		{
 			return _cooldown;
 		}

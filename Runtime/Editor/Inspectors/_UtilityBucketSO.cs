@@ -2,7 +2,6 @@
 
 // ReSharper disable All
 
-using System.Linq;
 
 #if UNITY_EDITOR
 
@@ -11,6 +10,8 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 	using UnityEngine;
 	using UnityEditor;
 	using System;
+	using System.Linq;
+	using System.Collections.Generic;
 	using UObject = UnityEngine.Object;
 	using SP = UnityEditor.SerializedProperty;
 	using RL = UnityEditorInternal.ReorderableList;
@@ -22,6 +23,13 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 		{
 			serializedObject.UpdateIfRequiredOrScript();
 			EditorGUILayout.Space(5f);
+			foreach (var prop in _props)
+			{
+				EditorGUILayout.PropertyField(prop);
+			}
+			serializedObject.ApplyModifiedProperties();
+			
+			EditorGUILayout.Space(5f);
 			_actionAssetList.OnListGUI();
 			serializedObject.ApplyModifiedProperties();
 		}
@@ -32,9 +40,18 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 		}
 
 		private NestedAssetList<UtilityActionSO> _actionAssetList = null;
+		private IEnumerable<SerializedProperty> _props = null;
+
+		private static string[] _extraFields =
+		{
+			nameof(UtilityBucketSO._name),
+			nameof(UtilityBucketSO._actionScoringInterval)
+		};
 
 		private void OnEnable()
 		{
+			_props = _extraFields.Select(f => serializedObject.FindProperty(f)).Where(x => x != null);
+			
 			var listProp = serializedObject.FindProperty(nameof(UtilityBucketSO._actions));
 			_actionAssetList = new NestedAssetList<UtilityActionSO>(listProp);
 
@@ -43,7 +60,6 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 
 			_actionAssetList.onDrawListItem = (rect, prop, so) =>
 			{
-
 				var checkRect = rect.SliceLeft(rect.height);
 				
 				var newEnabled = GUI.Toggle(checkRect, so._enabled, GUIContent.none);
@@ -63,14 +79,9 @@ namespace Smidgenomics.Unity.UtilityAI.Editor
 				
 				var crect = rect.SliceRight(rect.height * 2f);
 				rect.SliceRight(2f);
-				// var wrect = rect.SliceRight(rect.height * 2.5f);
-				// rect.SliceRight(2f);
 				var count = CountEnabledConsiderations(so);
-				// EditorGUI.LabelField(wrect, "w=" + StringifyFloat(so._weight));
 				EditorGUI.LabelField(crect, $"c({count})");
-				
 				EditorGUI.LabelField(rect, so.name);
-	
 			};
 		}
 

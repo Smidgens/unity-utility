@@ -7,6 +7,13 @@
 
 namespace Smidgenomics.Unity.UtilityAI
 {
+	public delegate void ActionRefRO<T>(in T item);
+	public delegate R FuncRefRO<T, R>(in T item);
+}
+
+
+namespace Smidgenomics.Unity.UtilityAI
+{
 	using System;
 	using UnityEngine;
 	using System.Collections.Generic;
@@ -25,275 +32,569 @@ namespace Smidgenomics.Unity.UtilityAI
 	 */
 	public sealed class UtilityBrain
 	{
-		public IUtilityAction CurrentTemplate => GetCurrentAction()?.template;
+
+		public IUtilityAction CurrentTemplate => GetCurrentActionTemplate();
 
 		public event Action<IUtilityAction> onActionChanged = null;
+
+		public UtilityContext GetContext() => _context;
+		
 
 		public static UtilityBrain CreateBrain(in UtilityBrainInitConfig config)
 		{
 			var brain = new UtilityBrain();
-			brain._actionTemplates = config.actions != null ? config.actions.ToArray() : Array.Empty<IUtilityAction>();
-			brain._selectionMethod = config.selectionMethod;
-			brain._scoringInterval = config.scoringInterval;
 			brain._context = config.context;
+			brain._buckets = config.buckets ?? Array.Empty<BucketExecutionConfig>();
 			return brain;
+		}
+
+		// 
+		public int GetCurrentActionID() => _currentActionID;
+
+		public int GetCurrentBucketActionCount()
+		{
+			if (_bucketRecords.IsValidIndex(_currentBucketID))
+			{
+				return _bucketRecords[_currentBucketID].actionCount;
+			}
+			return 0;
+		}
+
+		// 
+		internal ref readonly ActionRecord GetCurrentAction() => ref _actionRecords[_currentActionID];
+	
+		// 
+		public int GetBucketCount() => _bucketRecords.Length;
+	
+		// 
+		public int GetCurrentBucketID() => _currentBucketID;
+
+		// 
+		public float GetBucketScoringProgress()
+		{
+			return Mathf.Clamp01((Time.time - _lastBucketScoringTime) / _bucketScoringInterval);
+		}
+
+		// 
+		public float GetActionScoringProgress()
+		{
+			ref readonly BucketRecord bucket = ref _bucketRecords[_currentBucketID];
+			return Mathf.Clamp01((Time.time - _lastActionScoringTime) / bucket.scoringInterval);
+		}
+
+		public int GetCurrentActionBucketID()
+		{
+			if (_actionRecords.IsValidIndex(_currentActionID))
+			{
+				return _actionRecords[_currentActionID].bucketID;
+			}
+			return -1;
 		}
 
 		public void StartLogic()
 		{
-			_actionRecords.Clear();
-
-			foreach (var action in _actionTemplates)
+			if (_running)
 			{
-				if (!action.Enabled)
-				{
-					continue;
-				}
-				
-				var record = new ActionRecord();
-				record.template = action;
-				_actionRecords.Add(record);
+				return;
 			}
-			_scoringRoutine = UtilityScriptHost.RunCoroutine(ScoringRoutine());
-			UtilityScriptHost.GetInstance().onUpdate -= Tick;
-			UtilityScriptHost.GetInstance().onUpdate += Tick;
-			UtilityScriptHost.GetInstance().onGUI -= OnGUI;
-			UtilityScriptHost.GetInstance().onGUI += OnGUI;
+			
+			_cachedManager = UtilityManager.GetInstance();
+			
+			_cachedManager.RegisterBrain(this);
+
+			_running = true;
+
+			InitExecutionContext();
 		}
 
 		public void StopLogic()
 		{
-			if (_scoringRoutine == null)
+			if (!_running)
 			{
 				return;
 			}
-			UtilityScriptHost.StopRoutine(_scoringRoutine);
-			_scoringRoutine = null;
-			UtilityScriptHost.GetInstance().onUpdate -= Tick;
-			UtilityScriptHost.GetInstance().onGUI -= OnGUI;
+
+			_running = false;
+
+			if (_cachedManager)
+			{
+				_cachedManager.UnregisterBrain(this);
+				
+				UtilityManager.StopRoutine(_actionScoringRoutine);
+				UtilityManager.StopRoutine(_bucketScoringRoutine);
+				// UtilityManager.GetInstance().onGUI -= OnGUI;
+			}
+			_actionScoringRoutine = null;
+		}
+		
+		public bool IsValidActionID(int actionID)
+		{
+			return _actionRecords.IsValidIndex(actionID);
+		}
+		
+		public bool IsValidBucketID(int bucketID)
+		{
+			return _bucketRecords.IsValidIndex(bucketID);
 		}
 
-		private UtilitySelectionMethod _selectionMethod = UtilitySelectionMethod.Best;
-		private IEnumerable<IUtilityAction> _actionTemplates = Array.Empty<IUtilityAction>();
-		private float _scoringInterval = 1f;
+		internal void ForEachActionInBucket(int bucketID, ActionRefRO<ActionRecord> fn)
+		{
+			if (!_bucketRecords.IsValidIndex(bucketID))
+			{
+				return;
+			}
+
+			ref readonly BucketRecord bucket = ref _bucketRecords[bucketID];
+
+			for (int i = 0; i < bucket.actionCount; i++)
+			{
+				int ActionID = _actionIndicesByScore[bucket.actionIndex + i];
+				ref readonly ActionRecord aRecord = ref _actionRecords[ActionID];
+				fn.Invoke(aRecord);
+			}
+		}
+
+		internal void ForEachBucket(ActionRefRO<BucketRecord> fn)
+		{
+			for (int i = 0; i < _bucketIndicesByScore.Length; i++)
+			{
+				int bucketID = _bucketIndicesByScore[i];
+				ref readonly BucketRecord record = ref _bucketRecords[bucketID];
+				fn.Invoke(record);
+			}
+		}
+
+		private EUtilitySelectionMethod _selectionMethod = EUtilitySelectionMethod.TopScore;
+		private Coroutine _actionScoringRoutine = default;
+		private Coroutine _bucketScoringRoutine = default;
 		private UtilityContext _context = default;
-		private Coroutine _scoringRoutine = default;
-		private int _activeActionIndex = -1;
-		private List<ActionRecord> _actionRecords = new();
-		private bool _cancelingAction = false;
+		internal ActionRecord[] _actionRecords = Array.Empty<ActionRecord>();
+		private BucketRecord[] _bucketRecords =  Array.Empty<BucketRecord>();
+		private BucketExecutionConfig[] _buckets = Array.Empty<BucketExecutionConfig>();
+		private UtilityManager _cachedManager = null;
+		private bool _deactivatingAction = false;
+		private bool _running = false;
+		private int[] _actionIndicesByScore = Array.Empty<int>();
+		private int[] _bucketIndicesByScore = Array.Empty<int>();
+		private float _lastBucketScoringTime = 0;
+		private float _lastActionScoringTime = 0;
+		private int _currentBucketID = -1;
+		private int _currentActionID = -1;
+		private float _bucketScoringInterval = 5f;
 
 		private UtilityBrain(){}
 
-		private sealed class ActionRecord
+		internal struct ActionRecord
 		{
+			public int actionID;
+			public int bucketID;
 			public float score;
 			public float cooldownEnd;
 			public IUtilityAction template;
 			public IUtilityAction instance;
-			public Coroutine routine;
-			public bool interrupted;
-			
-			public bool OnCooldown() => cooldownEnd > Time.time;
+			public Coroutine activationRoutine;
+			public bool cancelled;
+			public bool deactivating;
+			public bool cancellable;
 
-			public bool IsCancelable()
+			public bool OnCooldown()
 			{
-				return instance != null ? instance.CanCancelAction() : true;
+				if (instance != null)
+				{
+					return false;
+				}
+				return cooldownEnd > Time.time;
 			}
+			public EUtilityActionStatus Status => instance != null ? instance.Status : EUtilityActionStatus.Inactive;
 		}
 
-		private void Tick()
+		internal struct BucketRecord
 		{
-			// is this necessary?
+			public int ID;
+			public float score;
+			public string name;
+			public int actionIndex;
+			public int actionCount;
+			public float scoringInterval;
+			public float weight;
+			public EUtilitySelectionMethod selectionMethod;
+			public UtilityBucketSO bucketSO;
+			public UtilityConsiderationSetSO considerations;
+		}
+
+		private void InitExecutionContext()
+		{
+			List<BucketRecord> buckets = new();
+			List<ActionRecord> actions = new();
+			List<int> bucketIndices = new();
+			List<int> actionIndices = new();
+
+			foreach(var bucketConfig in _buckets)
+			{
+				var bucketSO = bucketConfig.bucket;
+
+				BucketRecord bucketRecord = new BucketRecord();
+				bucketRecord.ID = buckets.Count;
+				bucketRecord.name = bucketSO.BucketName;
+				bucketRecord.actionIndex = actions.Count;
+				bucketRecord.scoringInterval = bucketSO._actionScoringInterval;
+				bucketRecord.bucketSO = bucketSO;
+				bucketRecord.selectionMethod = bucketConfig.selectionMethod;
+				bucketRecord.considerations = bucketConfig.considerations;
+				bucketRecord.weight = bucketConfig.weight;
+				
+				int aCount = 0;
+
+				foreach (var action in bucketSO.GetActions())
+				{
+					if (!action.Enabled)
+					{
+						continue;
+					}
+					aCount++;
+					var record = new ActionRecord();
+					record.actionID = actions.Count;
+					record.template = action.InstantiateAction(default, default);
+					record.bucketID = bucketRecord.ID;
+					actions.Add(record);
+					actionIndices.Add(actionIndices.Count);
+				}
+				bucketRecord.actionCount = aCount;
+				buckets.Add(bucketRecord);
+				bucketIndices.Add(bucketIndices.Count);
+			}
+
+			_currentBucketID = buckets.Count > 0 ? 0 : -1;
+			_actionRecords = actions.ToArray();
+			_bucketRecords = buckets.ToArray();
+			_actionIndicesByScore = actionIndices.ToArray();
+			_bucketIndicesByScore = bucketIndices.ToArray();
+
+			StartRoutine(ref _actionScoringRoutine, ActionScoringRoutine);
+			StartRoutine(ref _bucketScoringRoutine, BucketScoringRoutine);
+
+			if (!_cachedManager)
+			{
+				_cachedManager = UtilityManager.GetInstance();
+			}
+			// _cachedManager.onGUI -= OnGUI;
+			// _cachedManager.onGUI += OnGUI;
 		}
 		
-		private void OnGUI()
+		// 
+		private void ScoreBuckets()
 		{
-			DrawDebugOverlay();
-		}
-
-		private void UpdateScores()
-		{
-			ActionRecord current = GetCurrentAction();
-			float bestScore = 0;
-			int bestIndex = -1;
-
-			int i = -1;
-			foreach (var record in _actionRecords)
+			_lastBucketScoringTime = Time.time;
+			for (int i = 0; i < _bucketRecords.Length; i++)
 			{
-				i++;
-
-				
-				record.score = record.template.GetTotalScore();
-
-				// 
-				if (record.OnCooldown())
-				{
-					continue;
-				}
-
-				if (record.score > bestScore)
-				{
-					bestScore = record.score;
-					bestIndex = i;
-				}
+				int bucketID = i;
+				ref BucketRecord record = ref _bucketRecords[bucketID];
+				record.score = GetBucketScore(record);
 			}
 
-			// best action is already running
-			if (bestIndex >= 0 && _activeActionIndex == bestIndex)
+			UtilityHelpers.SortIndicesByWeight(ref _bucketIndicesByScore, 0, _bucketIndicesByScore.Length, i =>
+			{
+				return _bucketRecords[i].score;
+			}, false);
+
+		}
+		
+
+		// 
+		private void ScoreActions()
+		{
+			_lastActionScoringTime = Time.time;
+
+			ref readonly BucketRecord bucket = ref _bucketRecords[_currentBucketID];
+
+			for (int i = 0; i < bucket.actionCount; i++)
+			{
+				var actionID = _actionIndicesByScore[bucket.actionIndex + i];
+				ref ActionRecord record = ref _actionRecords[actionID];
+				record.score = record.template.GetTotalScore();
+				record.cancellable = record.instance != null ? record.instance.CanCancelAction() : false;
+			}
+
+			UtilityHelpers.SortIndicesByWeight(ref _actionIndicesByScore, bucket.actionIndex, bucket.actionCount, i =>
+			{
+				return _actionRecords[i].score;
+			}, false);
+		}
+
+		private void SetNextBucket()
+		{
+			_currentBucketID = _bucketIndicesByScore.First();
+		}
+
+		private void ResetAction()
+		{
+			_currentActionID = -1;
+			onActionChanged?.Invoke(null);
+
+			SetNextAction();
+		}
+
+		private void SetNextAction()
+		{
+			if (_deactivatingAction)
 			{
 				return;
 			}
 
-			if (current == null)
+			// action is active and uncancellable
+			if (_actionRecords.IsValidIndex(_currentActionID) && !_actionRecords[_currentActionID].cancellable)
 			{
-				SelectAction(bestIndex);
+				return;
 			}
-			else if (current.IsCancelable() && !_cancelingAction)
+
+			ref readonly BucketRecord currBucket = ref _bucketRecords[_currentBucketID];
+
+			var nextIndex = SelectAction(currBucket.selectionMethod);
+
+			// already running best action
+			if (nextIndex >= 0 && nextIndex == _currentActionID)
 			{
-				int newIndex = bestIndex;
-				_cancelingAction = true;
-				UtilityScriptHost.RunCoroutine(CancelActionRoutine(current), () =>
+				return;
+			}
+
+			if (_actionRecords.IsValidIndex(_currentActionID))
+			{
+				ref readonly ActionRecord action = ref _actionRecords[_currentActionID];
+
+				if (!action.deactivating)
 				{
-					_cancelingAction = false;
-					SelectAction(newIndex);
-				});
+					CancelAction(action.actionID, ResetAction);
+				}
+			}
+			else if(_actionRecords.IsValidIndex(nextIndex))
+			{
+				ActivateAction(nextIndex);
 			}
 		}
 
-		private IEnumerator CancelActionRoutine(ActionRecord action)
+		// 
+		private int SelectAction(EUtilitySelectionMethod method)
 		{
-			UtilityScriptHost.StopRoutine(action.routine);
-			yield return action.instance.CancelAction();
-			action.interrupted = true;
-			action.instance.Status = UtilityActionStatus.Canceled;
-			action.cooldownEnd = Time.time + action.instance.GetCooldown();
-			DisposeAction(action);
+			if (method == EUtilitySelectionMethod.RandomWeighted)
+			{
+				return GetRandomActionWeighted();
+			}
 
+			if (method == EUtilitySelectionMethod.TopScoreInterval)
+			{
+				return GetBestActionInterval();
+			}
+
+			return GetBestAction();
+		}
+		
+		private int GetBestAction()
+		{
+			int ID = _currentActionID;
+
+			ref readonly BucketRecord bucket = ref _bucketRecords[_currentBucketID];
+
+			for (int i = 0; i < bucket.actionCount; i++)
+			{
+				int actionID = _actionIndicesByScore[bucket.actionIndex + i];
+				ref readonly ActionRecord action = ref _actionRecords[actionID];
+				if (action.OnCooldown())
+				{
+					continue;
+				}
+
+				if (Mathf.Approximately(action.score, 0f))
+				{
+					continue;
+				}
+				//
+				return action.actionID;
+			}
+			return ID;
+		}
+
+		private int GetBestActionInterval()
+		{
+			return GetBestAction();
+		}
+
+		private int GetRandomActionWeighted()
+		{
+			ref readonly BucketRecord bucket = ref _bucketRecords[_currentBucketID];
+
+			List<int> indices = new();
+
+			for (int i = 0; i < bucket.actionCount; i++)
+			{
+				int actionID = _actionIndicesByScore[bucket.actionIndex + i];
+				ref readonly ActionRecord action = ref _actionRecords[actionID];
+				if (action.OnCooldown())
+				{
+					continue;
+				}
+
+				if (Mathf.Approximately(action.score, 0f))
+				{
+					continue;
+				}
+				//
+				indices.Add(actionID);
+			}
+			
+			var randIndex = UtilityMath.GetRandomArrayIndexWeighted(indices.ToArray(), GetActionScore);;
+
+			return randIndex >= 0 ? randIndex : _currentActionID;
+		}
+
+		private float GetActionScore(in int actionID)
+		{
+			return _actionRecords[actionID].score;
+		}
+
+		private float GetBucketScore(in BucketRecord bucket)
+		{
+			var score = bucket.considerations ? bucket.considerations.GetScore(_context) : 0f;
+			return score * bucket.weight;
+		}
+
+		void CancelAction(int actionID, Action onDone)
+		{
+			ref ActionRecord record = ref _actionRecords[actionID];
+			record.cancelled = true;
+			DeactivateAction(actionID, EUtilityActionStatus.Cancelled, onDone);
+		}
+
+		private void DeactivateAction(int actionID, EUtilityActionStatus status, Action onDone)
+		{
+			if (_deactivatingAction)
+			{
+				return;
+			}
+
+			_deactivatingAction = true;
+
+			ref ActionRecord record = ref _actionRecords[actionID];
+			
+			UtilityManager.StopRoutine(record.activationRoutine);
+			record.activationRoutine = null;
+
+			if (record.instance != null)
+			{
+				record.instance.Status = status;
+			}
+			
+			record.deactivating = true;
+			UtilityManager.RunCoroutine(DeactivateActionRoutine(actionID), onDone);
+		}
+
+		private IEnumerator DeactivateActionRoutine(int actionID)
+		{
+			var instance = _actionRecords[actionID].instance;
+
+			if (instance != null)
+			{
+				yield return instance.DeactivateAction();
+			}
+			
+			ActionRecord action = _actionRecords[actionID];
+
+			if (instance != null)
+			{
+				action.cooldownEnd = Time.time + instance.GetActionCooldown();
+			}
+			
+			action.deactivating = false;
+			_actionRecords[actionID] = action;
+			DisposeActionInstance(actionID);
+			yield return null;
+
+			_deactivatingAction = false;
+			
 			yield return null;
 		}
 
-		private void SelectAction(int index)
+		private void ActivateAction(int actionID)
 		{
-			_activeActionIndex = index;
-			var record = _actionRecords[index];
-			record.interrupted = false;
+			_currentActionID = actionID;
+
+			ref ActionRecord record = ref _actionRecords[actionID];
+			record.cancelled = false;
+			
 			record.instance = record.template.InstantiateAction(_context, new UtilityActionCallbacks
 			{
-				onActionFinished = OnActionCompleted
+				onActionFinished = OnActionFinished
 			});
-			record.routine = UtilityScriptHost.RunCoroutine(record.instance.ActivateAction(), OnActionCompleted);
+
+			record.instance.Status = EUtilityActionStatus.Active;
+
+			record.activationRoutine = UtilityManager.RunCoroutine(record.instance.ActivateAction(), OnActionFinished);
 			onActionChanged?.Invoke(record.template);
 		}
 
-		private void OnActionCompleted()
+		// called when action finishes early
+		private void OnActionFinished()
 		{
-			var record = GetCurrentAction();
-			record.cooldownEnd = Time.time + Mathf.Max(record.instance.GetCooldown(), UtilityConstants.MIN_COOLDOWN);
-			UtilityScriptHost.StopRoutine(record.routine);
-			record.instance.Status = UtilityActionStatus.Completed;
-			DisposeAction(record);
-			_activeActionIndex = -1;
-			onActionChanged?.Invoke(null);
+			DeactivateAction(_currentActionID, EUtilityActionStatus.Completed, ResetAction);
 		}
 
-		private void DisposeAction(ActionRecord record)
+		private void DisposeActionInstance(int actionID)
 		{
-			if (record.instance.GetType().IsSubclassOf(typeof(UnityEngine.Object)))
+			ref ActionRecord record = ref _actionRecords[actionID];
+
+			if (record.instance != null)
 			{
-				UnityEngine.Object.Destroy(record.instance as UnityEngine.Object);
+				if (record.instance.GetType().IsSubclassOf(typeof(UnityEngine.Object)))
+				{
+					UnityEngine.Object.Destroy(record.instance as UnityEngine.Object);
+				}
 			}
 			record.instance = null;
 		}
 
-		private IEnumerator ScoringRoutine()
+		private IEnumerator ActionScoringRoutine()
 		{
 			while (true)
 			{
-				yield return new WaitUntil(() => !_cancelingAction);
-				UpdateScores();
-				yield return new WaitForSeconds(_scoringInterval);
+				BucketRecord bucket = _bucketRecords[_currentBucketID];
+				float interval = bucket.scoringInterval;
+				yield return new WaitUntil(NotDeactivatingAction);
+				ScoreActions();
+				SetNextAction();
+				yield return _cachedManager.GetDelayInstance(interval);
 			}
 		}
 
-		private ActionRecord GetCurrentAction()
+		private IEnumerator BucketScoringRoutine()
 		{
-			if (_activeActionIndex < 0)
+			while (true)
 			{
-				return null;
+				yield return new WaitUntil(NotDeactivatingAction);
+				ScoreBuckets();
+				SetNextBucket();
+				yield return _cachedManager.GetDelayInstance(_bucketScoringInterval);
 			}
-			return _actionRecords[_activeActionIndex];
 		}
 
-		private void DrawDebugOverlay()
+		private bool NotDeactivatingAction() => !_deactivatingAction;
+
+		private IUtilityAction GetCurrentActionInstance()
 		{
-			var srect = new Rect(0, 0, Screen.width, Screen.height);
-			var style = GUI.skin.label;
-			var height = style.CalcSize(new GUIContent("a")).y;
-
-			var pstart = new Vector2(10, 10);
-			var padding = 2f;
-
-			var rheight = padding * 2f + height;
-
-			var rwidth = 300f;
-
-			var i = 0;
-			foreach (var action in _actionRecords)
-			{
-				var yo = rheight * i;
-				var pos = pstart + new Vector2(0, yo);
-				
-				var rect = new Rect(pos, new  Vector2(rwidth, rheight));
-
-				var lrect = rect;
-				lrect.height = height;
-				lrect.center = rect.center;
-
-				var textColor = Color.white;
-				var bColor = Color.black;
-
-				var onCooldown = action.OnCooldown();
-				
-				if (CurrentTemplate == action.template)
-				{
-					bColor = Color.green;
-					textColor = Color.black;
-				}
-				else if (onCooldown)
-				{
-					bColor = action.interrupted ? Color.yellow : Color.blue;
-					textColor = action.interrupted ? Color.black : Color.white;
-				}
-				
-				
-				UnityEditor.EditorGUI.DrawRect(rect, bColor);
-				
-				lrect.SliceLeft(5f);
-				lrect.SliceRight(5f);
-
-				var cdCol = lrect.SliceRight(50);
-
-				var wCol = lrect.SliceRight(50);
-				lrect.SliceRight(5f);
-
-				var tcolor = GUI.color;
-				GUI.color = textColor; 
-				GUI.Label(lrect, action.template.Name, style);
-				GUI.Label(wCol, action.score.ToString(), style);
-
-				if (onCooldown)
-				{
-					var remainder = action.cooldownEnd - Time.time;
-					int val = remainder < 1 ? (int)(remainder * 1000) : (int)remainder;
-					var timeLabel = val + (remainder < 1 ? "ms" : "s");
-					GUI.Label(cdCol, timeLabel, style);
-				}
-				GUI.color = tcolor;
-				i++;
-			}
-
+			return _actionRecords.IsValidIndex(_currentActionID)
+			? _actionRecords[_currentActionID].instance
+			: null;
 		}
 
+		private IUtilityAction GetCurrentActionTemplate()
+		{
+			return _actionRecords.IsValidIndex(_currentActionID)
+			? _actionRecords[_currentActionID].template
+			: null;
+		}
+
+		private static void StartRoutine(ref Coroutine outRef, Func<IEnumerator> fn)
+		{
+			outRef = UtilityManager.RunCoroutine(fn());
+		}
 
 	}
 }

@@ -11,7 +11,7 @@ namespace Smidgenomics.Unity.UtilityAI
 	{
 		public static float ScoreConsiderations
 		(
-			UtilityContext context,
+			in UtilityContext context,
 			IEnumerable<IUtilityConsideration> considerations,
 			out int count
 		)
@@ -57,6 +57,34 @@ namespace Smidgenomics.Unity.UtilityAI
 			float ModFactor = 1 - (1 / ConsiderationCount);
 			float MakeupValue = (1 - AggregateScore) * ModFactor;
 			return AggregateScore + (MakeupValue * AggregateScore);
+		}
+
+		public static int GetRandomArrayIndexWeighted<T>(in float[] weights)
+		{
+			return GetRandomArrayIndexWeighted(weights, (in float w) => w);
+		}
+		
+		public static int GetRandomArrayIndexWeighted<T>(in T[] arr, FuncRefRO<T, float> weightFn)
+		{
+			if (arr.Length == 0)
+			{
+				return -1;
+			}
+			List<float> weights = new();
+			List<float> cumulative = new();
+
+			float totalWeight = 0;
+			for (var i = 0; i < arr.Length; i++)
+			{
+				float weight = weightFn.Invoke(arr[i]);
+				weights.Add(weight);
+				totalWeight += weight;
+				cumulative.Add(totalWeight);
+			}
+
+			var max = cumulative[cumulative.Count - 1];
+			var rand = max * UnityEngine.Random.Range(0f, 1f);
+			return cumulative.FindIndex(x => x >= rand);
 		}
 	}
 }
